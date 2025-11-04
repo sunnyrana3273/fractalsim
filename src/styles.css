@@ -1,0 +1,362 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Funnel Display", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 400;
+    font-style: normal;
+    background: #ffffff;
+    min-height: 100vh;
+    color: #000000;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px 20px;
+}
+
+header {
+    background: transparent;
+    padding: 15px 0;
+    border-bottom: 2px solid #000000;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+h1 {
+    font-family: "Funnel Display", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 2em;
+    color: #000000;
+    letter-spacing: -0.02em;
+}
+
+.stats {
+    display: flex;
+    gap: 40px;
+    align-items: center;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.stat-label {
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 400;
+    font-style: normal;
+    font-size: 0.75em;
+    color: #666666;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-value {
+    font-family: "Funnel Display", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 700;
+    font-style: normal;
+    font-size: 2em;
+    color: #000000;
+}
+
+.clear-btn {
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 500;
+    font-style: normal;
+    background: #000000;
+    color: #ffffff;
+    border: 2px solid #000000;
+    padding: 10px 20px;
+    border-radius: 0;
+    font-size: 0.875em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    align-self: center;
+}
+
+.clear-btn:hover {
+    background: #ffffff;
+    color: #000000;
+}
+
+.clear-btn:active {
+    background: #f0f0f0;
+}
+
+.clear-btn.cleared {
+    background: #ffffff;
+    color: #000000;
+    border-color: #000000;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 2.2fr 1fr;
+    gap: 30px;
+}
+
+.camera-section {
+    background: transparent;
+    border: 2px solid #000000;
+    border-radius: 0;
+    padding: 20px;
+}
+
+.camera-container {
+    position: relative;
+    width: 100%;
+    border-radius: 0;
+    overflow: hidden;
+    background: #000000;
+    aspect-ratio: 4/3;
+}
+
+#camera-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.camera-overlay {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+}
+
+.status-indicator {
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 500;
+    font-style: normal;
+    background: rgba(255, 255, 255, 0.9);
+    color: #000000;
+    padding: 8px 16px;
+    border: 2px solid #000000;
+    border-radius: 0;
+    font-size: 0.875em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-indicator.hand-open {
+    background: #f0f8f0;
+    border-color: #a0d4a0;
+    color: #2d5a2d;
+}
+
+.status-indicator.hand-closed {
+    background: #f8f0f0;
+    border-color: #d4a0a0;
+    color: #5a2d2d;
+}
+
+.notifications-section {
+    background: transparent;
+    border: 2px solid #000000;
+    border-radius: 0;
+    padding: 20px;
+    max-height: calc(100vh - 200px);
+    display: flex;
+    flex-direction: column;
+}
+
+.notifications-header-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.notifications-section h2 {
+    font-family: "Funnel Display", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    color: #000000;
+    font-size: 1.25em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0;
+}
+
+.clear-notifications-btn {
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 500;
+    font-style: normal;
+    background: #000000;
+    color: #ffffff;
+    border: 2px solid #000000;
+    padding: 6px 12px;
+    border-radius: 0;
+    font-size: 0.75em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.clear-notifications-btn:hover {
+    background: #ffffff;
+    color: #000000;
+}
+
+.clear-notifications-btn:active {
+    background: #f0f0f0;
+}
+
+.clear-notifications-btn.cleared {
+    background: #ffffff;
+    color: #000000;
+    border-color: #000000;
+}
+
+.notifications-container {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.no-notifications {
+    color: #999999;
+    text-align: center;
+    padding: 40px 20px;
+    font-style: italic;
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 400;
+    font-size: 0.875em;
+}
+
+.notification-item {
+    background: #ffffff;
+    color: #000000;
+    padding: 16px;
+    border: 2px solid #000000;
+    border-radius: 0;
+    animation: slideIn 0.3s ease-out;
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 400;
+}
+
+.notification-item.hand-open {
+    background: #f0f8f0;
+    border-color: #a0d4a0;
+}
+
+.notification-item.hand-closed {
+    background: #f8f0f0;
+    border-color: #d4a0a0;
+}
+
+.notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.notification-type {
+    font-family: "Funnel Display", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 1em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.notification-item.hand-open .notification-type {
+    color: #2d5a2d;
+}
+
+.notification-item.hand-closed .notification-type {
+    color: #5a2d2d;
+}
+
+.notification-message {
+    font-size: 0.875em;
+    font-family: "Google Sans Code", monospace;
+    font-optical-sizing: auto;
+    font-weight: 400;
+    color: #666666;
+}
+
+.notification-number {
+    display: inline-block;
+    background: #000000;
+    color: #ffffff;
+    padding: 2px 8px;
+    border-radius: 0;
+    font-size: 0.75em;
+    margin-right: 8px;
+    font-weight: 600;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Scrollbar styling */
+.notifications-container::-webkit-scrollbar {
+    width: 4px;
+}
+
+.notifications-container::-webkit-scrollbar-track {
+    background: #ffffff;
+}
+
+.notifications-container::-webkit-scrollbar-thumb {
+    background: #000000;
+}
+
+.notifications-container::-webkit-scrollbar-thumb:hover {
+    background: #333333;
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+    
+    header {
+        flex-direction: column;
+        gap: 20px;
+        text-align: center;
+    }
+    
+    .stats {
+        justify-content: center;
+    }
+}

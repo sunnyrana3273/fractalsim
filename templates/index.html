@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Tracker - Live Camera Feed</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>👋 Hand Tracker</h1>
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Total Gestures:</span>
+                    <span class="stat-value" id="total-count">0</span>
+                </div>
+                <button id="clear-squares-btn" class="clear-btn">Clear Squares</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="camera-section">
+                <div class="camera-container">
+                    <img id="camera-feed" src="{{ url_for('video_feed') }}" alt="Camera Feed">
+                    <div class="camera-overlay">
+                        <div class="status-indicator" id="status-indicator">
+                            <span id="hand-status">Waiting for hand...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="notifications-section">
+                <h2>Recent Gestures</h2>
+                <div class="notifications-container" id="notifications-container">
+                    <p class="no-notifications">No gestures detected yet. Open and close your hand to see notifications here!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
+
