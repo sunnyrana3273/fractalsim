@@ -5,6 +5,7 @@ import mediapipe as mp
 import numpy as np
 import threading
 import time
+import math
 from collections import deque
 
 app = Flask(__name__)
@@ -27,15 +28,16 @@ class HandTracker:
         self.notifications = deque(maxlen=10)
         self.lock = threading.Lock()
         
-        # Squares to draw (store position, width, height, and timestamp)
-        self.squares = []  # List of (x, y, width, height, timestamp, alpha)
+        # Shapes to draw (store position, width, height, shape type, and timestamp)
+        self.shapes = []  # List of (x, y, width, height, shape_type, timestamp, alpha)
+        self.shape_mode = "square"  # "square" or "circle"
         
         # Resize interaction state
-        self.active_resize = None  # {"square_idx": int, "handle": str, "finger_pos": (x, y), "initial_width": int, "initial_height": int}
+        self.active_resize = None  # {"shape_idx": int, "handle": str, "finger_pos": (x, y), "initial_width": int, "initial_height": int}
         self.handle_proximity_threshold = 80  # pixels
         
         # Drag/move interaction state
-        self.active_drag = None  # {"square_idx": int, "finger_pos": (x, y), "initial_center": (x, y)}
+        self.active_drag = None  # {"shape_idx": int, "finger_pos": (x, y), "initial_center": (x, y)}
         self.drag_proximity_threshold = 100  # pixels - distance from center to start dragging
         
     def count_extended_fingers(self, landmarks, hand_label="Right"):
@@ -109,59 +111,77 @@ class HandTracker:
         y = int(lm.y * frame_height)
         return (x, y)
     
-    def get_square_handles(self, square):
-        """Get all handles (corners and edges) of a rectangle."""
-        width = square["width"]
-        height = square["height"]
-        x = square["x"]
-        y = square["y"]
-        half_width = width // 2
-        half_height = height // 2
+    def get_shape_handles(self, shape):
+        """Get all handles for a shape (square or circle)."""
+        width = shape["width"]
+        height = shape["height"]
+        x = shape["x"]
+        y = shape["y"]
+        shape_type = shape.get("shape_type", "square")
         
-        handles = {
-            # Corners
-            "top_left": (x - half_width, y - half_height),
-            "top_right": (x + half_width, y - half_height),
-            "bottom_left": (x - half_width, y + half_height),
-            "bottom_right": (x + half_width, y + half_height),
-            # Edges (middle points)
-            "top": (x, y - half_height),
-            "bottom": (x, y + half_height),
-            "left": (x - half_width, y),
-            "right": (x + half_width, y)
-        }
-        return handles
+        if shape_type == "circle":
+            # For circles, use radius and create 8 handles around the perimeter
+            radius = max(width, height) // 2
+            handles = {}
+            for i in range(8):
+                angle = (i * 2 * math.pi) / 8
+                handle_x = int(x + radius * math.cos(angle))
+                handle_y = int(y + radius * math.sin(angle))
+                handles[f"handle_{i}"] = (handle_x, handle_y)
+            return handles
+        else:
+            # Rectangle/square handles
+            half_width = width // 2
+            half_height = height // 2
+            handles = {
+                # Corners
+                "top_left": (x - half_width, y - half_height),
+                "top_right": (x + half_width, y - half_height),
+                "bottom_left": (x - half_width, y + half_height),
+                "bottom_right": (x + half_width, y + half_height),
+                # Edges (middle points)
+                "top": (x, y - half_height),
+                "bottom": (x, y + half_height),
+                "left": (x - half_width, y),
+                "right": (x + half_width, y)
+            }
+            return handles
     
-    def get_square_corners(self, square):
-        """Get the four corners for drawing the rectangle."""
-        width = square["width"]
-        height = square["height"]
-        x = square["x"]
-        y = square["y"]
-        half_width = width // 2
-        half_height = height // 2
+    def get_shape_bounds(self, shape):
+        """Get the bounding box for drawing the shape."""
+        width = shape["width"]
+        height = shape["height"]
+        x = shape["x"]
+        y = shape["y"]
+        shape_type = shape.get("shape_type", "square")
         
-        top_left = (x - half_width, y - half_height)
-        bottom_right = (x + half_width, y + half_height)
-        return top_left, bottom_right
+        if shape_type == "circle":
+            radius = max(width, height) // 2
+            return (x, y, radius)
+        else:
+            half_width = width // 2
+            half_height = height // 2
+            top_left = (x - half_width, y - half_height)
+            bottom_right = (x + half_width, y + half_height)
+            return (top_left, bottom_right, None)
     
     def distance(self, p1, p2):
         """Calculate Euclidean distance between two points."""
         return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
     
-    def find_nearest_handle(self, finger_pos, squares, threshold):
+    def find_nearest_handle(self, finger_pos, shapes, threshold):
         """Find the nearest handle (corner or edge) to the finger position."""
         nearest = None
         min_distance = threshold
         
-        for idx, square in enumerate(squares):
-            handles = self.get_square_handles(square)
+        for idx, shape in enumerate(shapes):
+            handles = self.get_shape_handles(shape)
             for handle_name, handle_pos in handles.items():
                 dist = self.distance(finger_pos, handle_pos)
                 if dist < min_distance:
                     min_distance = dist
                     nearest = {
-                        "square_idx": idx,
+                        "shape_idx": idx,
                         "handle": handle_name,
                         "handle_pos": handle_pos,
                         "distance": dist
@@ -169,30 +189,37 @@ class HandTracker:
         
         return nearest
     
-    def is_point_inside_square(self, point, square):
-        """Check if a point is inside a square."""
+    def is_point_inside_shape(self, point, shape):
+        """Check if a point is inside a shape."""
         x, y = point
-        square_x = square["x"]
-        square_y = square["y"]
-        half_width = square["width"] // 2
-        half_height = square["height"] // 2
+        shape_x = shape["x"]
+        shape_y = shape["y"]
+        shape_type = shape.get("shape_type", "square")
         
-        return (square_x - half_width <= x <= square_x + half_width and
-                square_y - half_height <= y <= square_y + half_height)
+        if shape_type == "circle":
+            radius = max(shape["width"], shape["height"]) // 2
+            dist_from_center = self.distance(point, (shape_x, shape_y))
+            return dist_from_center <= radius
+        else:
+            # Rectangle/square
+            half_width = shape["width"] // 2
+            half_height = shape["height"] // 2
+            return (shape_x - half_width <= x <= shape_x + half_width and
+                    shape_y - half_height <= y <= shape_y + half_height)
     
-    def find_square_to_drag(self, finger_pos, squares, handle_threshold):
-        """Find a square that the finger is over (not on a handle)."""
+    def find_shape_to_drag(self, finger_pos, shapes, handle_threshold):
+        """Find a shape that the finger is over (not on a handle)."""
         # First check if finger is near any handle (don't drag if near handle)
-        nearest_handle = self.find_nearest_handle(finger_pos, squares, handle_threshold)
+        nearest_handle = self.find_nearest_handle(finger_pos, shapes, handle_threshold)
         if nearest_handle:
             return None  # Finger is near a handle, don't drag
         
-        # Check if finger is inside any square (can drag from anywhere inside)
-        for idx, square in enumerate(squares):
-            if self.is_point_inside_square(finger_pos, square):
+        # Check if finger is inside any shape (can drag from anywhere inside)
+        for idx, shape in enumerate(shapes):
+            if self.is_point_inside_shape(finger_pos, shape):
                 return {
-                    "square_idx": idx,
-                    "distance": 0  # Always allow drag from inside square
+                    "shape_idx": idx,
+                    "distance": 0  # Always allow drag from inside shape
                 }
         
         return None
@@ -243,108 +270,122 @@ class HandTracker:
                         if self.active_resize is None:
                             # Look for nearby handle (corner or edge) to start resize
                             nearest = self.find_nearest_handle(
-                                index_finger_tip, self.squares, self.handle_proximity_threshold
+                                index_finger_tip, self.shapes, self.handle_proximity_threshold
                             )
                             if nearest:
                                 # Start resize
-                                square = self.squares[nearest["square_idx"]]
-                                handles = self.get_square_handles(square)
+                                shape = self.shapes[nearest["shape_idx"]]
+                                handles = self.get_shape_handles(shape)
                                 self.active_resize = {
-                                    "square_idx": nearest["square_idx"],
+                                    "shape_idx": nearest["shape_idx"],
                                     "handle": nearest["handle"],
                                     "finger_pos": index_finger_tip,
                                     "initial_finger_pos": index_finger_tip,
-                                    "initial_width": square["width"],
-                                    "initial_height": square["height"],
-                                    "initial_center": (square["x"], square["y"]),
+                                    "initial_width": shape["width"],
+                                    "initial_height": shape["height"],
+                                    "initial_center": (shape["x"], shape["y"]),
                                     "handle_pos": handles[nearest["handle"]]
                                 }
                         else:
                             # Continue resize if finger is moving
-                            square_idx = self.active_resize["square_idx"]
+                            shape_idx = self.active_resize["shape_idx"]
                             handle_name = self.active_resize["handle"]
-                            square = self.squares[square_idx]
-                            square_center = (square["x"], square["y"])
+                            shape = self.shapes[shape_idx]
+                            shape_center = (shape["x"], shape["y"])
+                            shape_type = shape.get("shape_type", "square")
                             
                             # Get initial dimensions
                             initial_width = self.active_resize["initial_width"]
                             initial_height = self.active_resize["initial_height"]
                             
-                            # Calculate new dimensions based on handle type
-                            if handle_name in ["top", "bottom"]:
-                                # Vertical edge - change height only
-                                finger_y_dist = abs(index_finger_tip[1] - square_center[1])
-                                target_height = int(finger_y_dist * 2)
-                                current_height = square["height"]
-                                new_height = int(current_height * 0.80 + target_height * 0.20)
-                                new_height = max(new_height, 50)
-                                new_height = min(new_height, frame_height - 20)
-                                square["height"] = new_height
+                            if shape_type == "circle":
+                                # For circles, resize based on distance from center
+                                finger_to_center_dist = self.distance(index_finger_tip, shape_center)
+                                target_radius = int(finger_to_center_dist)
+                                current_radius = max(shape["width"], shape["height"]) // 2
+                                new_radius = int(current_radius * 0.80 + target_radius * 0.20)
+                                new_radius = max(new_radius, 25)
+                                new_radius = min(new_radius, min(frame_width, frame_height) // 2 - 10)
                                 
-                            elif handle_name in ["left", "right"]:
-                                # Horizontal edge - change width only
-                                finger_x_dist = abs(index_finger_tip[0] - square_center[0])
-                                target_width = int(finger_x_dist * 2)
-                                current_width = square["width"]
-                                new_width = int(current_width * 0.80 + target_width * 0.20)
-                                new_width = max(new_width, 50)
-                                new_width = min(new_width, frame_width - 20)
-                                square["width"] = new_width
-                                
+                                # Update both width and height to maintain circle
+                                shape["width"] = new_radius * 2
+                                shape["height"] = new_radius * 2
                             else:
-                                # Corner handle - change both width and height proportionally
-                                finger_to_center_dist = self.distance(index_finger_tip, square_center)
-                                
-                                # Distance from center determines size
-                                target_size = int(finger_to_center_dist * 1.414)  # sqrt(2) ≈ 1.414
-                                
-                                # Maintain aspect ratio or scale both dimensions
-                                current_size_avg = (square["width"] + square["height"]) // 2
-                                new_size_avg = int(current_size_avg * 0.80 + target_size * 0.20)
-                                
-                                # Scale both dimensions proportionally
-                                scale_factor = new_size_avg / max(current_size_avg, 1)
-                                new_width = int(square["width"] * scale_factor)
-                                new_height = int(square["height"] * scale_factor)
-                                
-                                # Constraints
-                                new_width = max(new_width, 50)
-                                new_width = min(new_width, frame_width - 20)
-                                new_height = max(new_height, 50)
-                                new_height = min(new_height, frame_height - 20)
-                                
-                                square["width"] = new_width
-                                square["height"] = new_height
+                                # Rectangle/square resize logic
+                                if handle_name in ["top", "bottom"]:
+                                    # Vertical edge - change height only
+                                    finger_y_dist = abs(index_finger_tip[1] - shape_center[1])
+                                    target_height = int(finger_y_dist * 2)
+                                    current_height = shape["height"]
+                                    new_height = int(current_height * 0.80 + target_height * 0.20)
+                                    new_height = max(new_height, 50)
+                                    new_height = min(new_height, frame_height - 20)
+                                    shape["height"] = new_height
+                                    
+                                elif handle_name in ["left", "right"]:
+                                    # Horizontal edge - change width only
+                                    finger_x_dist = abs(index_finger_tip[0] - shape_center[0])
+                                    target_width = int(finger_x_dist * 2)
+                                    current_width = shape["width"]
+                                    new_width = int(current_width * 0.80 + target_width * 0.20)
+                                    new_width = max(new_width, 50)
+                                    new_width = min(new_width, frame_width - 20)
+                                    shape["width"] = new_width
+                                    
+                                else:
+                                    # Corner handle - change both width and height proportionally
+                                    finger_to_center_dist = self.distance(index_finger_tip, shape_center)
+                                    
+                                    # Distance from center determines size
+                                    target_size = int(finger_to_center_dist * 1.414)  # sqrt(2) ≈ 1.414
+                                    
+                                    # Maintain aspect ratio or scale both dimensions
+                                    current_size_avg = (shape["width"] + shape["height"]) // 2
+                                    new_size_avg = int(current_size_avg * 0.80 + target_size * 0.20)
+                                    
+                                    # Scale both dimensions proportionally
+                                    scale_factor = new_size_avg / max(current_size_avg, 1)
+                                    new_width = int(shape["width"] * scale_factor)
+                                    new_height = int(shape["height"] * scale_factor)
+                                    
+                                    # Constraints
+                                    new_width = max(new_width, 50)
+                                    new_width = min(new_width, frame_width - 20)
+                                    new_height = max(new_height, 50)
+                                    new_height = min(new_height, frame_height - 20)
+                                    
+                                    shape["width"] = new_width
+                                    shape["height"] = new_height
                             
                             self.active_resize["finger_pos"] = index_finger_tip
                     
                     # Drag interaction - works when hand is closed (fist)
-                    if fist_closed and len(self.squares) > 0:
+                    if fist_closed and len(self.shapes) > 0:
                         # Use hand center position for dragging (wrist landmark)
                         wrist_pos = self.get_finger_tip_position(
                             hand_landmarks.landmark, 0, frame_width, frame_height  # Wrist is landmark 0
                         )
                         
                         if wrist_pos:
-                            # Check if we can drag the square
+                            # Check if we can drag the shape
                             if self.active_drag is None:
-                                # Check if wrist is inside any square
-                                drag_target = self.find_square_to_drag(
-                                    wrist_pos, self.squares, self.handle_proximity_threshold
+                                # Check if wrist is inside any shape
+                                drag_target = self.find_shape_to_drag(
+                                    wrist_pos, self.shapes, self.handle_proximity_threshold
                                 )
                                 if drag_target:
                                     # Start drag
-                                    square = self.squares[drag_target["square_idx"]]
+                                    shape = self.shapes[drag_target["shape_idx"]]
                                     self.active_drag = {
-                                        "square_idx": drag_target["square_idx"],
+                                        "shape_idx": drag_target["shape_idx"],
                                         "hand_pos": wrist_pos,
                                         "initial_hand_pos": wrist_pos,
-                                        "initial_center": (square["x"], square["y"])
+                                        "initial_center": (shape["x"], shape["y"])
                                     }
                             else:
                                 # Continue dragging
-                                square_idx = self.active_drag["square_idx"]
-                                square = self.squares[square_idx]
+                                shape_idx = self.active_drag["shape_idx"]
+                                shape = self.shapes[shape_idx]
                                 
                                 # Get previous hand position for smooth tracking
                                 prev_hand_pos = self.active_drag["hand_pos"]
@@ -353,18 +394,23 @@ class HandTracker:
                                 dx = wrist_pos[0] - prev_hand_pos[0]
                                 dy = wrist_pos[1] - prev_hand_pos[1]
                                 
-                                # Update square center position smoothly
-                                new_x = square["x"] + dx
-                                new_y = square["y"] + dy
+                                # Update shape center position smoothly
+                                new_x = shape["x"] + dx
+                                new_y = shape["y"] + dy
                                 
-                                # Keep square within frame bounds
-                                half_width = square["width"] // 2
-                                half_height = square["height"] // 2
-                                new_x = max(half_width, min(new_x, frame_width - half_width))
-                                new_y = max(half_height, min(new_y, frame_height - half_height))
+                                # Keep shape within frame bounds
+                                if shape.get("shape_type", "square") == "circle":
+                                    radius = max(shape["width"], shape["height"]) // 2
+                                    new_x = max(radius, min(new_x, frame_width - radius))
+                                    new_y = max(radius, min(new_y, frame_height - radius))
+                                else:
+                                    half_width = shape["width"] // 2
+                                    half_height = shape["height"] // 2
+                                    new_x = max(half_width, min(new_x, frame_width - half_width))
+                                    new_y = max(half_height, min(new_y, frame_height - half_height))
                                 
-                                square["x"] = new_x
-                                square["y"] = new_y
+                                shape["x"] = new_x
+                                shape["y"] = new_y
                                 
                                 # Update hand position for next frame
                                 self.active_drag["hand_pos"] = wrist_pos
@@ -375,38 +421,48 @@ class HandTracker:
                     
                     # Release if finger moved away from handle (for resize)
                     if self.active_resize is not None and index_finger_tip and not fist_closed:
-                        square_idx = self.active_resize["square_idx"]
-                        square = self.squares[square_idx]
-                        handles = self.get_square_handles(square)
+                        shape_idx = self.active_resize["shape_idx"]
+                        shape = self.shapes[shape_idx]
+                        handles = self.get_shape_handles(shape)
                         handle_pos = handles[self.active_resize["handle"]]
                         dist = self.distance(index_finger_tip, handle_pos)
                         if dist > self.handle_proximity_threshold * 1.5:
                             self.active_resize = None
                     
-                    # Release drag if hand is no longer closed or moved away from square
+                    # Release drag if hand is no longer closed or moved away from shape
                     if self.active_drag is not None:
                         if not fist_closed:
                             # Release if hand opens
                             self.active_drag = None
                         else:
-                            # Check if wrist moved outside square (with tolerance)
+                            # Check if wrist moved outside shape (with tolerance)
                             wrist_pos = self.get_finger_tip_position(
                                 hand_landmarks.landmark, 0, frame_width, frame_height
                             )
                             if wrist_pos:
-                                square_idx = self.active_drag["square_idx"]
-                                square = self.squares[square_idx]
+                                shape_idx = self.active_drag["shape_idx"]
+                                shape = self.shapes[shape_idx]
                                 
                                 # Add padding to allow some movement outside before releasing
                                 padding = 50  # pixels
-                                expanded_square = {
-                                    "x": square["x"],
-                                    "y": square["y"],
-                                    "width": square["width"] + padding * 2,
-                                    "height": square["height"] + padding * 2
-                                }
+                                if shape.get("shape_type", "square") == "circle":
+                                    radius = max(shape["width"], shape["height"]) // 2
+                                    expanded_shape = {
+                                        "x": shape["x"],
+                                        "y": shape["y"],
+                                        "width": (radius + padding) * 2,
+                                        "height": (radius + padding) * 2,
+                                        "shape_type": "circle"
+                                    }
+                                else:
+                                    expanded_shape = {
+                                        "x": shape["x"],
+                                        "y": shape["y"],
+                                        "width": shape["width"] + padding * 2,
+                                        "height": shape["height"] + padding * 2
+                                    }
                                 
-                                if not self.is_point_inside_square(wrist_pos, expanded_square):
+                                if not self.is_point_inside_shape(wrist_pos, expanded_shape):
                                     self.active_drag = None
                             else:
                                 # No wrist detected, release drag
@@ -426,19 +482,21 @@ class HandTracker:
                         }
                         self.notifications.append(notification)
                         
-                        # Add square when hand opens (only if no square exists)
-                        if current_hand_open and len(self.squares) == 0:
+                        # Add shape when hand opens (only if no shape exists)
+                        if current_hand_open and len(self.shapes) == 0:
                             # Size should be proportional to hand size, with some padding
-                            square_size = int(hand_size * 1.5)
-                            self.squares.append({
+                            shape_size = int(hand_size * 1.5)
+                            self.shapes.append({
                                 "x": hand_x,
                                 "y": hand_y,
-                                "width": square_size,
-                                "height": square_size,
+                                "width": shape_size,
+                                "height": shape_size,
+                                "shape_type": self.shape_mode,
                                 "timestamp": timestamp,
                                 "alpha": 255  # Start fully opaque
                             })
-                            print(f"Hand gesture detected! Square drawn at ({hand_x}, {hand_y})")
+                            shape_name = "Circle" if self.shape_mode == "circle" else "Square"
+                            print(f"Hand gesture detected! {shape_name} drawn at ({hand_x}, {hand_y})")
                         elif not current_hand_open:
                             print(f"Hand gesture detected! Count: {self.hand_open_count}")
                     
@@ -458,36 +516,43 @@ class HandTracker:
             with self.lock:
                 self.prev_hand_open = False
         
-        # Draw rectangles
+        # Draw shapes
         with self.lock:
             frame_height, frame_width = frame.shape[:2]
             
-            # Draw all rectangles permanently (no expiration)
-            for idx, square in enumerate(self.squares):
-                # Calculate rectangle corners
-                top_left, bottom_right = self.get_square_corners(square)
-                
-                # Draw rectangle with solid color (stays permanently)
+            # Draw all shapes permanently (no expiration)
+            for idx, shape in enumerate(self.shapes):
+                shape_type = shape.get("shape_type", "square")
                 color = (200, 230, 255)  # Light pastel blue (BGR format)
                 thickness = 8
                 
-                # Draw the rectangle
-                cv2.rectangle(frame, top_left, bottom_right, color, thickness)
+                if shape_type == "circle":
+                    # Draw circle
+                    center = (shape["x"], shape["y"])
+                    radius = max(shape["width"], shape["height"]) // 2
+                    cv2.circle(frame, center, radius, color, thickness)
+                else:
+                    # Draw rectangle/square
+                    bounds = self.get_shape_bounds(shape)
+                    top_left, bottom_right, _ = bounds
+                    cv2.rectangle(frame, top_left, bottom_right, color, thickness)
                 
-                # Draw interactive handles (corners and edges) with visual feedback
-                handles = self.get_square_handles(square)
-                is_active_square = self.active_resize and self.active_resize["square_idx"] == idx
+                # Draw interactive handles with visual feedback
+                handles = self.get_shape_handles(shape)
+                is_active_shape = self.active_resize and self.active_resize["shape_idx"] == idx
                 
                 for handle_name, handle_pos in handles.items():
                     # Check if this handle is being manipulated
-                    is_active_handle = (is_active_square and 
+                    is_active_handle = (is_active_shape and 
                                        self.active_resize["handle"] == handle_name)
                     
-                    # Determine if it's a corner or edge handle
-                    is_corner = handle_name in ["top_left", "top_right", "bottom_left", "bottom_right"]
+                    # Determine handle size (corners are larger for rectangles)
+                    if shape_type == "circle":
+                        handle_size = 12 if is_active_handle else 8
+                    else:
+                        is_corner = handle_name in ["top_left", "top_right", "bottom_left", "bottom_right"]
+                        handle_size = 12 if is_active_handle else (10 if is_corner else 8)
                     
-                    # Draw handle indicator
-                    handle_size = 12 if is_active_handle else (10 if is_corner else 8)
                     handle_color = (255, 255, 0) if is_active_handle else (200, 230, 255)  # Yellow for active, light pastel blue for inactive
                     
                     # Draw filled circle for handle
@@ -583,10 +648,27 @@ def get_stats():
 
 @app.route('/api/clear_squares', methods=['POST'])
 def clear_squares():
-    """Clear all squares."""
+    """Clear all shapes."""
     with tracker.lock:
-        tracker.squares.clear()
-    return jsonify({"success": True, "message": "Squares cleared"})
+        tracker.shapes.clear()
+    return jsonify({"success": True, "message": "Shapes cleared"})
+
+@app.route('/api/toggle_shape_mode', methods=['POST'])
+def toggle_shape_mode():
+    """Toggle between square and circle mode."""
+    with tracker.lock:
+        tracker.shape_mode = "circle" if tracker.shape_mode == "square" else "square"
+    return jsonify({
+        "success": True, 
+        "shape_mode": tracker.shape_mode,
+        "message": f"Shape mode set to {tracker.shape_mode}"
+    })
+
+@app.route('/api/get_shape_mode', methods=['GET'])
+def get_shape_mode():
+    """Get current shape mode."""
+    with tracker.lock:
+        return jsonify({"shape_mode": tracker.shape_mode})
 
 @app.route('/api/clear_notifications', methods=['POST'])
 def clear_notifications():

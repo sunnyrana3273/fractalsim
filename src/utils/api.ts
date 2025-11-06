@@ -44,3 +44,24 @@ export async function clearNotifications(): Promise<ClearNotificationsResponse> 
     return response.json();
 }
 
+export async function toggleShapeMode(): Promise<{success: boolean; shape_mode: string; message: string}> {
+    const response = await fetch(`${API_BASE}/toggle_shape_mode`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to toggle shape mode');
+    }
+    return response.json();
+}
+
+export async function getShapeMode(): Promise<{shape_mode: string}> {
+    const response = await fetch(`${API_BASE}/get_shape_mode`);
+    if (!response.ok) {
+        throw new Error('Failed to get shape mode');
+    }
+    return response.json();
+}
+

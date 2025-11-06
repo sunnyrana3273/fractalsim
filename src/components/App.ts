@@ -1,5 +1,5 @@
 import type { Notification } from '../types';
-import { fetchNotifications, clearSquares, clearNotifications } from '../utils/api';
+import { fetchNotifications, clearSquares, clearNotifications, toggleShapeMode, getShapeMode } from '../utils/api';
 
 class HandTrackerApp {
     private lastNotificationId = 0;
@@ -11,7 +11,9 @@ class HandTrackerApp {
     private statusIndicator!: HTMLElement;
     private clearSquaresBtn!: HTMLButtonElement;
     private clearNotificationsBtn!: HTMLButtonElement;
+    private toggleShapeBtn!: HTMLButtonElement;
     private cameraFeed!: HTMLImageElement;
+    private currentShapeMode: string = 'square';
     
     constructor() {
         this.initialize();
@@ -37,7 +39,8 @@ class HandTrackerApp {
                             <span class="stat-label">Total Gestures:</span>
                             <span class="stat-value" id="total-count">0</span>
                         </div>
-                        <button id="clear-squares-btn" class="clear-btn">Clear Squares</button>
+                        <button id="toggle-shape-btn" class="clear-btn">Square</button>
+                        <button id="clear-squares-btn" class="clear-btn">Clear</button>
                     </div>
                 </header>
                 
@@ -73,12 +76,43 @@ class HandTrackerApp {
         this.statusIndicator = document.getElementById('status-indicator')!;
         this.clearSquaresBtn = document.getElementById('clear-squares-btn') as HTMLButtonElement;
         this.clearNotificationsBtn = document.getElementById('clear-notifications-btn') as HTMLButtonElement;
+        this.toggleShapeBtn = document.getElementById('toggle-shape-btn') as HTMLButtonElement;
         this.cameraFeed = document.getElementById('camera-feed') as HTMLImageElement;
+        
+        // Load initial shape mode
+        this.loadShapeMode();
     }
     
     private attachEventListeners(): void {
         this.clearSquaresBtn.addEventListener('click', () => this.handleClearSquares());
         this.clearNotificationsBtn.addEventListener('click', () => this.handleClearNotifications());
+        this.toggleShapeBtn.addEventListener('click', () => this.handleToggleShape());
+    }
+    
+    private async loadShapeMode(): Promise<void> {
+        try {
+            const data = await getShapeMode();
+            this.currentShapeMode = data.shape_mode;
+            this.updateToggleButton();
+        } catch (error) {
+            console.error('Error loading shape mode:', error);
+        }
+    }
+    
+    private updateToggleButton(): void {
+        this.toggleShapeBtn.textContent = this.currentShapeMode === 'circle' ? 'Circle' : 'Square';
+    }
+    
+    private async handleToggleShape(): Promise<void> {
+        try {
+            const data = await toggleShapeMode();
+            if (data.success) {
+                this.currentShapeMode = data.shape_mode;
+                this.updateToggleButton();
+            }
+        } catch (error) {
+            console.error('Error toggling shape mode:', error);
+        }
     }
     
     private async fetchNotifications(): Promise<void> {
